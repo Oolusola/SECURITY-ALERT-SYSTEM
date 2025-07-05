@@ -1,5 +1,4 @@
 import streamlit as st
-from streamlit_js_eval import streamlit_js_eval
 from datetime import datetime
 from geopy.distance import geodesic
 import gspread
@@ -49,53 +48,12 @@ with st.expander("📍 Get My Location Manually"):
     if manual_lat and manual_lon:
         st.success(f"📍 Manual Location Set: Latitude {manual_lat}, Longitude {manual_lon}")
 
-# --- Try Auto GPS (button after manual) ---
-get_location = st.button("📍 Get My Location Automatically")
-location = streamlit_js_eval(js_expressions="navigator.geolocation.getCurrentPosition", key="get_location")
-
-if get_location:
-    if location is None:
-        st.info("🛰 Waiting for GPS... Make sure location is enabled in your browser.")
-    elif isinstance(location, dict) and 'coords' in location:
-        lat = location['coords']['latitude']
-        lon = location['coords']['longitude']
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        user_coord = (lat, lon)
-
-        selected_facility = next((f for f in facility_data if f["Facility"] == selected_facility_name), None)
-
-        st.success("✅ Location detected!")
-        st.info(f"**Latitude:** {lat}")
-        st.info(f"**Longitude:** {lon}")
-        st.info(f"**Timestamp:** {timestamp}")
-
-        with st.expander("📍 Your Info Summary"):
-            st.markdown(f"""
-            - **Name:** {name}  
-            - **Selected Facility:** {selected_facility_name}  
-            - **Landmark:** {selected_facility['Landmark']}  
-            - **Postal Code:** {selected_facility['Postal code']}  
-            - **LGA:** {selected_facility['LGA']}  
-            - **Designation:** {designation}  
-            - **Date:** {selected_date}  
-            - **Time:** {timestamp}  
-            - **Latitude:** {lat}  
-            - **Longitude:** {lon}
-            """)
-    else:
-        st.error("❌ Location access denied or not supported.")
-
 # --- Submit to Google Sheet ---
 submit_to_sheet = st.button("✅ Submit Attendance to Google Sheet")
 
 if submit_to_sheet:
-    # Use auto GPS if available, else manual
     lat, lon, timestamp = None, None, None
-    if get_location and location and isinstance(location, dict) and 'coords' in location:
-        lat = location['coords']['latitude']
-        lon = location['coords']['longitude']
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    elif manual_lat and manual_lon:
+    if manual_lat and manual_lon:
         try:
             lat = float(manual_lat)
             lon = float(manual_lon)
