@@ -1,5 +1,5 @@
 streamlit
-streamlit-js-eval
+streamlit_js_eval
 geopy
 gspread
 oauth2client
