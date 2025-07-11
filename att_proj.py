@@ -1,117 +1,76 @@
 import streamlit as st
-from datetime import datetime
-from geopy.distance import geodesic
 import gspread
+from google.oauth2.service_account import Credentials
+from datetime import datetime
+import smtplib
+from email.message import EmailMessage
 
-st.set_page_config(page_title="Attendance Logger", layout="centered")
-st.title("📋 STH Facility Attendant Form")
+# PAGE CONFIG
+st.set_page_config(page_title="ERNEST DUNG EMR SYSTEM", layout="centered")
+st.title("🩺 ERNEST DUNG ELECTRONIC MEDICAL RECORD SYSTEM")
+st.subheader("🔐 Secure Login Page")
 
-# Sample facility data
-facility_data = [
-    {"Facility": "State office", "Landmark": "Kaduna North", "Latitude": 10.51508777, "Longitude": 7.43844, "Postal code": "800283", "LGA": "Kaduna North"},
-    {"Facility": "Amina Hospital", "Landmark": "Chikun", "Latitude": 10.4554067, "Longitude": 7.4258814, "Postal code": "800282", "LGA": "Chikun"},
-    {"Facility": "Sabon Tasha General Hospital", "Landmark": "Chikun", "Latitude": 10.4489626, "Longitude": 7.478136, "Postal code": "800104", "LGA": "Chikun"},
-    {"Facility": "Kujama Rural Hospital", "Landmark": "Kaduna South", "Latitude": 10.4061661, "Longitude": 7.704165, "Postal code": "802130", "LGA": "Kaduna South"},
-]
+# Google Sheet Setup
+SHEET_NAME = "Unauthorized_Login_Attempts"
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+client = gspread.authorize(creds)
+sheet = client.open(SHEET_NAME).sheet1
 
-# --- Inputs ---
-name = st.text_input("👤 Enter your name")
-facility_names = [f["Facility"] for f in facility_data]
-selected_facility_name = st.selectbox("🏥 Select your facility", facility_names)
+# Email Setup
+EMAIL_SENDER = "your_email@gmail.com"
+EMAIL_PASSWORD = "your_app_password"
+EMAIL_RECEIVER = "receiver_email@gmail.com"
 
-col1, col2 = st.columns(2)
-with col1:
-    designation_options = [
-        "I3TR", "TSP", "EDC", "M&E officer", "case manager", "adhrnce nurse", "Data clrk", "focal person"
-    ]
-    designation = st.selectbox("👨‍💼 Select your designation", designation_options)
-
-with col2:
-    today = datetime.now().date()
-    min_date = datetime(2025, 1, 1).date()
-    selected_date = st.date_input("📅 Select today's date", today, min_value=min_date, max_value=today)
-
-# --- Manual Fallback ---
-with st.expander("📍 Get My Location Manually"):
-    st.markdown("""
-    If automatic GPS is slow or blocked, click below to open an external site, copy your location, and paste it here.
+def send_email_alert(username, attempt_time):
+    msg = EmailMessage()
+    msg["Subject"] = "🚨 FRAUD ALERT: Unauthorized Access Attempt"
+    msg["From"] = EMAIL_SENDER
+    msg["To"] = EMAIL_RECEIVER
+    msg.set_content(f"""
+    Unauthorized login attempt detected on ERNEST DUNG EMR SYSTEM.
+    
+    Username: {username}
+    Time: {attempt_time}
     """)
-    gps_url = "https://gps-coordinates.org/my-location.php"
-    st.markdown(f"[🌐 Open GPS Website]({gps_url})", unsafe_allow_html=True)
 
-    col_lat, col_lon = st.columns(2)
-    with col_lat:
-        manual_lat = st.text_input("🔢 Latitude (from website)", "")
-    with col_lon:
-        manual_lon = st.text_input("🔢 Longitude (from website)", "")
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+        smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
+        smtp.send_message(msg)
 
-    if manual_lat and manual_lon:
-        st.success(f"📍 Manual Location Set: Latitude {manual_lat}, Longitude {manual_lon}")
+def log_to_google_sheet(username, attempt_time):
+    sheet.append_row([username, attempt_time, "Unauthorized Login Attempt"])
 
-# --- Submit to Google Sheet ---
-submit_to_sheet = st.button("✅ Submit Attendance to Google Sheet")
+# Hardcoded login credentials
+USERNAME = "admin"
+PASSWORD = "admin123"
 
-if submit_to_sheet:
-    lat, lon, timestamp = None, None, None
-    if manual_lat and manual_lon:
-        try:
-            lat = float(manual_lat)
-            lon = float(manual_lon)
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            st.error("❌ Invalid manual coordinates provided.")
-    else:
-        st.error("❌ No location data to submit.")
+# Track login attempts
+if "attempts" not in st.session_state:
+    st.session_state.attempts = 0
+if "fraud_alert" not in st.session_state:
+    st.session_state.fraud_alert = False
 
-    if lat and lon:
-        selected_facility = next((f for f in facility_data if f["Facility"] == selected_facility_name), None)
-        if selected_facility:
-            # Calculate distance
-            facility_coord = (selected_facility["Latitude"], selected_facility["Longitude"])
-            user_coord = (lat, lon)
-            distance_km = geodesic(facility_coord, user_coord).km
-            if distance_km > 2:
-                punctuality_status = "not in the facility"
-            else:
-                punctuality_status = "arrived at the facility"
+# Login Form
+with st.form("login_form"):
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    submitted = st.form_submit_button("Login")
 
-            # Prepare row for Google Sheet in the specified order
-            row = [
-                selected_facility["Facility"],
-                selected_facility["Landmark"],
-                selected_facility["Postal code"],
-                name,
-                str(selected_date),
-                designation,
-                timestamp,
-                lat,
-                lon,
-                punctuality_status,   # Punctuality Check
-                round(distance_km, 7) # Distance
-            ]
-            try:
-                from oauth2client.service_account import ServiceAccountCredentials
-                scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-                creds = ServiceAccountCredentials.from_json_keyfile_name("streamlit-attendance-app.json", scope)
-                client = gspread.authorize(creds)
-                sheet = client.open("Attendant tracker")
-                worksheet = sheet.sheet1
-                # Ensure header exists in the specified order
-                header = ["Facility Name", "Landmark", "Postal Code", "Name", "Date", "Designation", "Timestamp", "Latitude", "Longitude", "Punctuality Check", "Distance"]
-                if worksheet.row_values(1) != header:
-                    worksheet.insert_row(header, 1)
-                worksheet.append_row(row)
-                st.success("✅ Attendance submitted to Google Sheet!")
-            except Exception as e:
-                error_message = str(e)
-                if (
-                    'Failed to resolve' in error_message or
-                    'NameResolutionError' in error_message or
-                    'getaddrinfo failed' in error_message or
-                    'Max retries exceeded with url' in error_message
-                ):
-                    st.error("❌ You don't have network connection, please connect to a stronger network and try again.")
-                else:
-                    st.error(f"❌ Failed to submit to Google Sheet: {e}")
+    if submitted:
+        if username == USERNAME and password == PASSWORD:
+            st.success("✅ Login successful. Welcome to the EMR System!")
+            st.session_state.attempts = 0  # Reset attempts
         else:
-            st.error("❌ Facility not found for submission.")
+            st.session_state.attempts += 1
+            st.error(f"❌ Invalid credentials. Attempt {st.session_state.attempts}/3")
+
+            if st.session_state.attempts >= 3:
+                st.session_state.fraud_alert = True
+                attempt_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                log_to_google_sheet(username, attempt_time)
+                send_email_alert(username, attempt_time)
+
+# Fraud Alert Message
+if st.session_state.fraud_alert:
+    st.markdown("<h3 style='color:red;'>🚨 FRAUD ALERT DETECTED! Unauthorized login attempts exceeded limit.</h3>", unsafe_allow_html=True)
